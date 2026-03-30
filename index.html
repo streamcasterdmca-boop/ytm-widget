@@ -116,37 +116,10 @@ input[type=text]::placeholder { color:var(--dim); }
 /* ── PLAYER CARD ──────────────────────────────────────────────────────────── */
 
 /* Neon border pulse keyframes — cycles accent → accent2 → accent */
-@keyframes neon-pulse {
-  0%   { opacity:1;    box-shadow: 0 0 6px 1px var(--n1), 0 0 22px 4px var(--n1), 0 0 50px 8px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
-  25%  { opacity:.55;  box-shadow: 0 0 3px 1px var(--n2), 0 0 12px 2px var(--n2), 0 0 30px 4px var(--n2a), 0 8px 48px rgba(0,0,0,0.9); }
-  50%  { opacity:1;    box-shadow: 0 0 8px 2px var(--n2), 0 0 28px 6px var(--n2), 0 0 60px 10px var(--n2a),0 8px 48px rgba(0,0,0,0.9); }
-  75%  { opacity:.55;  box-shadow: 0 0 3px 1px var(--n1), 0 0 12px 2px var(--n1), 0 0 30px 4px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
-  100% { opacity:1;    box-shadow: 0 0 6px 1px var(--n1), 0 0 22px 4px var(--n1), 0 0 50px 8px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
-}
-
+/* Border spins continuously when playing */
 @keyframes border-rotate {
   0%   { --angle: 0deg; }
   100% { --angle: 360deg; }
-}
-
-/* Wrapper that holds the neon border glow — sits outside the card */
-#player-wrap {
-  position: relative;
-  width: var(--w);
-  border-radius: calc(var(--r) + 2px);
-  padding: 2px;                          /* border thickness */
-  background: linear-gradient(var(--angle, 135deg), var(--n1), var(--n2), var(--n1));
-  opacity: 0;
-  transition: opacity 1.8s ease;
-  /* Neon outer glow on the wrapper itself */
-  filter: drop-shadow(0 0 8px var(--n1)) drop-shadow(0 0 20px var(--n1a));
-}
-#player-wrap.in {
-  opacity: 1;
-  transition: opacity 1.3s ease;
-  animation:
-    neon-pulse 2.4s ease-in-out infinite,
-    border-rotate 4s linear infinite;
 }
 
 @property --angle {
@@ -155,13 +128,42 @@ input[type=text]::placeholder { color:var(--dim); }
   initial-value: 135deg;
 }
 
+/* ── Wrapper: holds the 2px gradient border + outer glow ── */
+/* Fade in/out is handled by the ::before pseudo covering the inner card,
+   so the wrapper itself never changes opacity — card stays fully opaque. */
+#player-wrap {
+  position: relative;
+  width: var(--w);
+  border-radius: calc(var(--r) + 2px);
+  padding: 2px;
+  /* Gradient border — angle driven by JS for spin */
+  background: linear-gradient(var(--angle, 135deg), var(--n1), var(--n2), var(--n1));
+  /* Outer neon halo — intensity driven by JS via --glow-str */
+  box-shadow:
+    0 0 calc(6px  * var(--glow-str, 0)) calc(1px * var(--glow-str, 0)) var(--n1),
+    0 0 calc(24px * var(--glow-str, 0)) calc(4px * var(--glow-str, 0)) var(--n1),
+    0 0 calc(55px * var(--glow-str, 0)) calc(8px * var(--glow-str, 0)) var(--n1a),
+    0 8px 48px rgba(0,0,0,0.9);
+  /* Smooth glow transitions */
+  transition: box-shadow 0.35s ease, --glow-str 0.35s ease;
+  /* Hide entirely when not playing — fade the whole wrapper */
+  opacity: 0;
+  transition: opacity 1.8s ease, box-shadow 0.35s ease;
+}
+#player-wrap.in {
+  opacity: 1;
+  transition: opacity 1.3s ease, box-shadow 0.35s ease;
+  animation: border-rotate 4s linear infinite;
+}
+
 #player {
   width: 100%;
-  background: rgb(10,8,15);             /* fully opaque — no transparency */
+  background: rgb(10,8,15);
   border-radius: var(--r);
   padding: 14px 18px 12px;
   display: flex; flex-direction: column; gap: 0;
   position: relative; overflow: hidden;
+  /* Card is ALWAYS fully opaque — opacity never changes on this element */
 }
 
 /* Grain texture */
@@ -366,12 +368,64 @@ let fadeTimer = null, visible = false, prevState = null, prevVid = null, crossfa
 
 function show() {
   clearTimeout(fadeTimer);
-  if (!visible) { visible = true; $wrap.classList.add('in'); }
+  if (!visible) {
+    visible = true;
+    $wrap.classList.add('in');
+    startGlow();
+  }
 }
 function hide(delay) {
   clearTimeout(fadeTimer);
-  const go = () => { if (visible) { visible = false; $wrap.classList.remove('in'); } stopRAF(); };
+  const go = () => {
+    if (visible) {
+      visible = false;
+      $wrap.classList.remove('in');
+      stopGlow();
+    }
+    stopRAF();
+  };
   delay > 0 ? (fadeTimer = setTimeout(go, delay)) : go();
+}
+
+// ── Random neon glow engine ──────────────────────────────────────────────────
+// Drives --glow-str on #player-wrap with random intensity + random interval.
+// The card itself never changes opacity — only the outer glow breathes.
+let glowTimer = null;
+
+const GLOW_STATES = [
+  { str: 1.0, label: 'full'  },
+  { str: 0.5, label: 'dim'   },
+  { str: 0.8, label: 'mid'   },
+  { str: 0.2, label: 'low'   },
+  { str: 1.0, label: 'full'  },
+  { str: 0.65,label: 'mid2'  },
+  { str: 0.1, label: 'ghost' },
+  { str: 0.9, label: 'hi'    },
+];
+
+function randomBetween(a, b) { return a + Math.random() * (b - a); }
+
+function glowTick() {
+  clearTimeout(glowTimer);
+  // Pick a random target intensity and transition duration
+  const target   = randomBetween(0.15, 1.0);
+  const duration = randomBetween(180, 900);   // ms — fast flicker to slow pulse
+  const wrap     = document.getElementById('player-wrap');
+  if (wrap) {
+    wrap.style.setProperty('--glow-str', target.toFixed(3));
+    wrap.style.transition = `opacity 1.3s ease, box-shadow ${duration.toFixed(0)}ms ease`;
+  }
+  // Schedule next tick after a random hold time
+  const hold = randomBetween(80, 1400);
+  glowTimer = setTimeout(glowTick, duration + hold);
+}
+
+function startGlow() { glowTimer || glowTick(); }
+function stopGlow()  {
+  clearTimeout(glowTimer);
+  glowTimer = null;
+  const wrap = document.getElementById('player-wrap');
+  if (wrap) wrap.style.setProperty('--glow-str', '0');
 }
 
 // ── rAF progress bar ──────────────────────────────────────────────────────────
