@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shawsys YT Music Widget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+  --accent:  #ff4d6d;
+  --accent2: #ff9f1c;
+  --bg:      rgba(10,8,15,0.84);
+  --border:  rgba(255,255,255,0.08);
+  --text:    #f0eaf8;
+  --sub:     rgba(240,234,248,0.52);
+  --dim:     rgba(240,234,248,0.26);
+  --pbg:     rgba(255,255,255,0.12);
+  --shadow:  0 8px 48px rgba(0,0,0,0.88), 0 2px 14px rgba(0,0,0,0.55);
+  --glow:    0 0 44px rgba(255,77,109,0.16);
+  --r:       16px;
+  --w:       580px;
+  --art:     68px;
+  /* Neon border colors */
+  --n1:  #ff4d6d;
+  --n2:  #ff9f1c;
+  --n1a: rgba(255,77,109,0.25);
+  --n2a: rgba(255,159,28,0.25);
+}
+
+html, body { background:transparent; width:var(--w); font-family:'DM Sans',sans-serif; -webkit-font-smoothing:antialiased; }
+
+/* ── SETUP SCREEN ─────────────────────────────────────────────────────────── */
+#setup {
+  display:none;
+  width:var(--w);
+  background:var(--bg);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  box-shadow:var(--shadow),var(--glow);
+  backdrop-filter:blur(22px);
+  -webkit-backdrop-filter:blur(22px);
+  padding:26px 28px 22px;
+  flex-direction:column;
+  gap:16px;
+}
+#setup h1 {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px; letter-spacing:2.5px; color:var(--accent);
+}
+#setup p { font-size:12.5px; color:var(--sub); line-height:1.65; }
+#setup strong { color:var(--text); font-weight:500; }
+#setup code {
+  background:rgba(255,255,255,0.07);
+  border:1px solid var(--border);
+  border-radius:5px; padding:1px 6px;
+  font-size:11.5px; color:var(--accent2);
+  font-family:monospace;
+}
+
+.section {
+  border-top:1px solid var(--border);
+  padding-top:14px;
+  display:flex; flex-direction:column; gap:10px;
+}
+.section h2 {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:13px; letter-spacing:2px; color:var(--sub);
+}
+
+.row { display:flex; gap:8px; align-items:center; }
+
+input[type=text] {
+  flex:1;
+  background:rgba(255,255,255,0.06);
+  border:1px solid var(--border);
+  border-radius:9px; padding:8px 12px;
+  color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px;
+  outline:none; transition:border-color .2s;
+}
+input[type=text]:focus { border-color:rgba(255,77,109,0.5); }
+input[type=text]::placeholder { color:var(--dim); }
+
+.btn {
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none; border-radius:9px; padding:9px 16px;
+  color:#fff; font-family:'DM Sans',sans-serif; font-weight:500;
+  font-size:13px; cursor:pointer; white-space:nowrap;
+  transition:opacity .2s; letter-spacing:.3px;
+}
+.btn:hover { opacity:.85; }
+.btn:disabled { opacity:.38; cursor:default; }
+
+.codebox {
+  background:rgba(255,159,28,0.10);
+  border:1px dashed rgba(255,159,28,0.4);
+  border-radius:10px; padding:8px 16px;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:30px; letter-spacing:7px;
+  color:var(--accent2); text-align:center;
+  display:none;
+}
+.status { font-size:11.5px; min-height:15px; color:var(--sub); }
+
+.obs-url {
+  background:rgba(255,255,255,0.05);
+  border:1px solid var(--border); border-radius:9px;
+  padding:10px 14px; font-family:monospace;
+  font-size:12px; color:var(--accent2);
+  word-break:break-all; line-height:1.5;
+  display:none;
+}
+
+/* ── PLAYER CARD ──────────────────────────────────────────────────────────── */
+
+/* Neon border pulse keyframes — cycles accent → accent2 → accent */
+@keyframes neon-pulse {
+  0%   { opacity:1;    box-shadow: 0 0 6px 1px var(--n1), 0 0 22px 4px var(--n1), 0 0 50px 8px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
+  25%  { opacity:.55;  box-shadow: 0 0 3px 1px var(--n2), 0 0 12px 2px var(--n2), 0 0 30px 4px var(--n2a), 0 8px 48px rgba(0,0,0,0.9); }
+  50%  { opacity:1;    box-shadow: 0 0 8px 2px var(--n2), 0 0 28px 6px var(--n2), 0 0 60px 10px var(--n2a),0 8px 48px rgba(0,0,0,0.9); }
+  75%  { opacity:.55;  box-shadow: 0 0 3px 1px var(--n1), 0 0 12px 2px var(--n1), 0 0 30px 4px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
+  100% { opacity:1;    box-shadow: 0 0 6px 1px var(--n1), 0 0 22px 4px var(--n1), 0 0 50px 8px var(--n1a), 0 8px 48px rgba(0,0,0,0.9); }
+}
+
+@keyframes border-rotate {
+  0%   { --angle: 0deg; }
+  100% { --angle: 360deg; }
+}
+
+/* Wrapper that holds the neon border glow — sits outside the card */
+#player-wrap {
+  position: relative;
+  width: var(--w);
+  border-radius: calc(var(--r) + 2px);
+  padding: 2px;                          /* border thickness */
+  background: linear-gradient(var(--angle, 135deg), var(--n1), var(--n2), var(--n1));
+  opacity: 0;
+  transition: opacity 1.8s ease;
+  /* Neon outer glow on the wrapper itself */
+  filter: drop-shadow(0 0 8px var(--n1)) drop-shadow(0 0 20px var(--n1a));
+}
+#player-wrap.in {
+  opacity: 1;
+  transition: opacity 1.3s ease;
+  animation:
+    neon-pulse 2.4s ease-in-out infinite,
+    border-rotate 4s linear infinite;
+}
+
+@property --angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 135deg;
+}
+
+#player {
+  width: 100%;
+  background: rgb(10,8,15);             /* fully opaque — no transparency */
+  border-radius: var(--r);
+  padding: 14px 18px 12px;
+  display: flex; flex-direction: column; gap: 0;
+  position: relative; overflow: hidden;
+}
+
+/* Grain texture */
+#player::before {
+  content:''; position:absolute; inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity:.032; pointer-events:none; border-radius:var(--r);
+}
+/* No ::after top line — the neon border replaces it */
+
+/* Blurred album art fills the background — opaque dark overlay on top */
+#bgart {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center;
+  opacity: 1;
+  filter: blur(32px) saturate(2.2) brightness(0.38);
+  pointer-events: none;
+  transition: background-image .7s ease;
+  border-radius: var(--r);
+}
+
+/* Dark overlay so text stays readable over the art */
+#bgoverlay {
+  position: absolute; inset: 0;
+  background: rgba(8,6,12,0.62);
+  pointer-events: none;
+  border-radius: var(--r);
+}
+
+.row2 { display:flex; gap:14px; align-items:center; position:relative; z-index:1; }
+
+.artwrap { position:relative; flex-shrink:0; }
+#art {
+  width:var(--art); height:var(--art);
+  border-radius:10px; object-fit:cover; display:block;
+  box-shadow:0 4px 20px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.06);
+}
+.sheen {
+  position:absolute; inset:0; border-radius:10px;
+  background:linear-gradient(135deg,rgba(255,255,255,.07) 0%,transparent 55%);
+  pointer-events:none;
+}
+
+.info { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+#ttl {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:22px; letter-spacing:1.5px; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.1;
+}
+#art2  { font-size:12px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#alb   { font-size:10px; font-weight:300; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.pill {
+  display:inline-flex; align-items:center; gap:5px; margin-top:5px;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.07);
+  border-radius:99px; padding:2px 8px 2px 6px; width:fit-content;
+}
+.dot {
+  width:5px; height:5px; border-radius:50%;
+  background:var(--accent); box-shadow:0 0 5px var(--accent);
+  flex-shrink:0; transition:background .3s,box-shadow .3s;
+}
+.dot.p { background:var(--sub); box-shadow:none; animation:none; }
+.dot.s { animation:blink 1.8s ease-in-out infinite; }
+@keyframes blink {
+  0%,100% { transform:scale(1);   opacity:1; }
+  50%      { transform:scale(1.5); opacity:.6; }
+}
+.plbl { font-size:9px; letter-spacing:1.8px; text-transform:uppercase; color:var(--sub); font-weight:500; }
+
+.tcol { display:flex; flex-direction:column; align-items:flex-end; gap:1px; flex-shrink:0; font-variant-numeric:tabular-nums; }
+#tc { font-family:'Bebas Neue',sans-serif; font-size:22px; letter-spacing:1px; color:var(--text); line-height:1; }
+#ts { font-size:9px; color:var(--dim); letter-spacing:1px; }
+#tt { font-size:10px; color:var(--sub); }
+
+.prog { position:relative; z-index:1; margin-top:10px; }
+.ptrack { width:100%; height:3px; background:var(--pbg); border-radius:99px; overflow:visible; position:relative; }
+#pfill  { height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:99px; position:relative; }
+#pfill::after {
+  content:''; position:absolute; right:-3px; top:50%; transform:translateY(-50%);
+  width:7px; height:7px; background:#fff; border-radius:50%;
+  box-shadow:0 0 7px rgba(255,159,28,.9); opacity:0; transition:opacity .3s;
+}
+.ptrack:hover #pfill::after { opacity:1; }
+
+.scroll { animation:mq 14s linear infinite; white-space:nowrap; display:inline-block; }
+@keyframes mq {
+  0%,12%   { transform:translateX(0); }
+  78%,100% { transform:translateX(var(--sd,-40%)); }
+}
+</style>
+</head>
+<body>
+
+<!-- SETUP (shown when ?obs is NOT in URL) -->
+<div id="setup">
+  <h1>🎵 Shawsys YT Music Widget — Setup</h1>
+  <p>Open this page in your browser to configure. Add it to OBS using the URL shown in Step 3.</p>
+
+  <div class="section">
+    <h2>Step 1 — YTMD IP address</h2>
+    <p>Almost always <strong>127.0.0.1</strong>. Only change if YTMD is on another machine.</p>
+    <div class="row">
+      <input id="ip" type="text" placeholder="127.0.0.1" spellcheck="false">
+      <button class="btn" onclick="saveIP()">Save</button>
+    </div>
+    <p class="status" id="ipst"></p>
+  </div>
+
+  <div class="section">
+    <h2>Step 2 — Authorize with YTMD</h2>
+    <p>Make sure YTMD is open and <strong>Settings → Integrations → Companion Server</strong> is enabled.</p>
+    <div class="codebox" id="cbox"></div>
+    <p id="ahint">Click below to start authorization.</p>
+    <div class="row">
+      <button class="btn" id="abtn" onclick="doAuth()">Connect to YouTube Music</button>
+      <button class="btn" id="rbtn" onclick="resetToken()" style="background:rgba(255,255,255,0.1);display:none">Reset Token</button>
+    </div>
+    <p class="status" id="ast"></p>
+  </div>
+
+  <div class="section">
+    <h2>Step 3 — Add to OBS</h2>
+    <p>In OBS: <strong>Add Source → Browser Source → URL</strong> (not Local File).<br>
+    Paste the URL below. Recommended size: <strong>580 × 120 px</strong>.<br>
+    The URL is permanent — it works from any machine and never needs updating.</p>
+    <div class="obs-url" id="obsurl"></div>
+    <p class="status" id="urlst" style="color:var(--dim)">Authorize first to generate your OBS URL.</p>
+  </div>
+</div>
+
+<!-- PLAYER (shown when ?obs is in URL, or always in OBS) -->
+<div id="player-wrap">
+<div id="player">
+  <div id="bgart"></div>
+  <div id="bgoverlay"></div>
+  <div class="row2">
+    <div class="artwrap">
+      <img id="art" src="" alt="">
+      <div class="sheen"></div>
+    </div>
+    <div class="info">
+      <div id="ttl">—</div>
+      <div id="art2">—</div>
+      <div id="alb"></div>
+      <div class="pill">
+        <div class="dot" id="dot"></div>
+        <div class="plbl" id="plbl">CONNECTING</div>
+      </div>
+    </div>
+    <div class="tcol">
+      <div id="tc">0:00</div>
+      <div id="ts">/ /</div>
+      <div id="tt">0:00</div>
+    </div>
+  </div>
+  <div class="prog">
+    <div class="ptrack">
+      <div id="pfill"></div>
+    </div>
+  </div>
+</div><!-- #player -->
+</div><!-- #player-wrap -->
+
+<script>
+'use strict';
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const PORT      = 9863;
+const APP_ID    = 'shawsysytmwidget';
+const APP_NAME  = 'Shawsys YT Music Widget';
+const APP_VER   = '1.0.0';
+
+// ── Params & storage ──────────────────────────────────────────────────────────
+// Hash-based params: https://shawsys.github.io/ytm-widget/#ip=x.x.x.x&t=TOKEN
+// Hash is never sent to any server — token stays 100% client-side.
+const GITHUB_URL = 'https://shawsys.github.io/ytm-widget/';
+
+function parseHash() {
+  const h = location.hash.replace(/^#/, '');
+  const out = {};
+  h.split('&').forEach(pair => {
+    const [k, v] = pair.split('=');
+    if (k && v !== undefined) out[decodeURIComponent(k)] = decodeURIComponent(v);
+  });
+  return out;
+}
+const hash     = parseHash();
+const OBS_MODE = 't' in hash;            // token in hash = OBS player mode
+const HASH_IP  = hash.ip || null;
+const HASH_TOK = hash.t  || null;
+
+let ip    = HASH_IP  || localStorage.getItem('ytm_ip')    || '127.0.0.1';
+let token = HASH_TOK || localStorage.getItem('ytm_token') || null;
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const $wrap   = document.getElementById('player-wrap');
+const $setup  = document.getElementById('setup');
+
+// ── Visibility / fade ─────────────────────────────────────────────────────────
+let fadeTimer = null, visible = false, prevState = null, prevVid = null, crossfading = false;
+
+function show() {
+  clearTimeout(fadeTimer);
+  if (!visible) { visible = true; $wrap.classList.add('in'); }
+}
+function hide(delay) {
+  clearTimeout(fadeTimer);
+  const go = () => { if (visible) { visible = false; $wrap.classList.remove('in'); } stopRAF(); };
+  delay > 0 ? (fadeTimer = setTimeout(go, delay)) : go();
+}
+
+// ── rAF progress bar ──────────────────────────────────────────────────────────
+let raf = null, rafBase = null, duration = 0;
+
+function startRAF(progress, dur) {
+  stopRAF();
+  duration = dur || 0;
+  rafBase  = { progress, t: performance.now() };
+  tick();
+}
+function stopRAF() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+function tick() {
+  if (!rafBase || duration <= 0) return;
+  const elapsed  = (performance.now() - rafBase.t) / 1000;
+  const progress = Math.min(rafBase.progress + elapsed, duration);
+  document.getElementById('pfill').style.width = (progress / duration * 100) + '%';
+  document.getElementById('tc').textContent    = fmt(progress);
+  document.getElementById('tt').textContent    = fmt(duration);
+  if (progress < duration) raf = requestAnimationFrame(tick);
+}
+function fmt(s) {
+  s = Math.floor(s || 0);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
+let socket = null;
+let lastTitle = null;
+
+function connect() {
+  if (socket) { socket.disconnect(); socket = null; }
+  if (!token) return;
+
+  // Connect to the root of the server; namespace IS the path
+  // Socket.IO path option changes the HTTP endpoint used for the handshake
+  socket = io(`http://${ip}:${PORT}/api/v1/realtime`, {
+    transports: ['websocket'],
+    auth: { token },
+    reconnection: true,
+    reconnectionDelay: 3000,
+    reconnectionDelayMax: 15000,
+  });
+
+  socket.on('connect', () => {
+    console.log('[Shawsys YT Music Widget] connected');
+    setPill('CONNECTED', 'p');
+  });
+
+  socket.on('state-update', onState);
+
+  socket.on('connect_error', err => {
+    console.warn('[Shawsys YT Music Widget] connect_error', err.message);
+    setPill('NO SIGNAL', 'p');
+    hide(0);
+
+    if (/unauthorized/i.test(err.message)) {
+      token = null;
+      localStorage.removeItem('ytm_token');
+      if (!OBS_MODE) {
+        setAst('Token rejected — please re-authorize.', 'var(--accent)');
+        document.getElementById('abtn').disabled = false;
+      }
+    }
+  });
+
+  socket.on('disconnect', reason => {
+    console.warn('[Shawsys YT Music Widget] disconnect', reason);
+    setPill('DISCONNECTED', 'p');
+    hide(0);
+  });
+}
+
+function onState(data) {
+  const { player, video } = data || {};
+  const ts = player?.trackState ?? -1;
+
+  if (!video || ts === -1 || player?.adPlaying) {
+    if (prevState !== 'stopped') { prevState = 'stopped'; hide(0); }
+    return;
+  }
+
+  const playing = ts === 1;
+  const vid = video.videoId || video.id || null;
+
+  // New track → crossfade
+  if (vid && vid !== prevVid) {
+    prevVid = vid;
+    prevState = null;
+    crossfading = true;
+    visible = false;
+    $wrap.classList.remove('in');
+    stopRAF();
+
+    setTimeout(() => {
+      crossfading = false;
+      applyMeta(video);
+      if (playing) { prevState = 'playing'; startRAF(player.videoProgress||0, video.durationSeconds||0); show(); }
+      else           { prevState = 'paused'; }
+    }, 900);
+    return;
+  }
+
+  if (crossfading) return;
+
+  const ns = playing ? 'playing' : 'paused';
+  if (ns !== prevState) {
+    prevState = ns;
+    if (playing) {
+      startRAF(player.videoProgress||0, video.durationSeconds||0);
+      show();
+    } else {
+      stopRAF();
+      syncProgress(player.videoProgress||0, video.durationSeconds||0);
+      hide(0);
+    }
+  } else if (playing) {
+    // Re-sync on every playing tick (handles seeks)
+    startRAF(player.videoProgress||0, video.durationSeconds||0);
+  }
+
+  applyMeta(video);
+}
+
+function syncProgress(progress, dur) {
+  const pct = dur > 0 ? Math.min(progress/dur*100, 100) : 0;
+  document.getElementById('pfill').style.width = pct + '%';
+  document.getElementById('tc').textContent    = fmt(progress);
+  document.getElementById('tt').textContent    = fmt(dur);
+}
+
+function applyMeta(video) {
+  const title  = video.title  || 'Unknown';
+  const artist = video.author || '';
+  const album  = video.album  || '';
+
+  const thumbs = video.thumbnails || [];
+  if (thumbs.length) {
+    const best = thumbs.reduce((a,b) => b.width>a.width?b:a, thumbs[0]);
+    document.getElementById('art').src = best.url;
+    document.getElementById('bgart').style.backgroundImage = `url('${best.url}')`;
+  }
+
+  if (title !== lastTitle) {
+    lastTitle = title;
+    const $t = document.getElementById('ttl');
+    $t.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = title;
+    $t.appendChild(span);
+    requestAnimationFrame(() => {
+      const ov = span.scrollWidth - $t.clientWidth;
+      if (ov > 8) { span.style.setProperty('--sd', `-${ov+16}px`); span.classList.add('scroll'); }
+    });
+  }
+
+  document.getElementById('art2').textContent = artist;
+  document.getElementById('alb').textContent  = album;
+  setPill(prevState === 'playing' ? 'NOW PLAYING' : 'PAUSED', prevState === 'playing' ? 's' : 'p');
+}
+
+function setPill(label, cls) {
+  document.getElementById('dot').className  = 'dot ' + cls;
+  document.getElementById('plbl').textContent = label;
+}
+
+// ── Setup screen helpers ───────────────────────────────────────────────────────
+function setAst(msg, color) {
+  const el = document.getElementById('ast');
+  el.textContent = msg;
+  el.style.color  = color || 'var(--sub)';
+}
+
+function saveIP() {
+  const v = document.getElementById('ip').value.trim() || '127.0.0.1';
+  ip = v;
+  localStorage.setItem('ytm_ip', ip);
+  const st = document.getElementById('ipst');
+  st.style.color = '#4ade80';
+  st.textContent = `✓ Saved — using ${ip}`;
+  updateObsUrl();
+  setTimeout(() => st.textContent = '', 3000);
+}
+
+function resetToken() {
+  token = null;
+  localStorage.removeItem('ytm_token');
+  if (socket) { socket.disconnect(); socket = null; }
+  document.getElementById('rbtn').style.display = 'none';
+  document.getElementById('obsurl').style.display = 'none';
+  document.getElementById('urlst').textContent = 'Authorize first to generate your OBS URL.';
+  document.getElementById('urlst').style.color = 'var(--dim)';
+  document.getElementById('abtn').disabled = false;
+  setAst('Token cleared. Re-authorize below.');
+}
+
+async function doAuth() {
+  const btn = document.getElementById('abtn');
+  btn.disabled = true;
+  setAst('Contacting YTMD…');
+  try {
+    const r1 = await fetch(`http://${ip}:${PORT}/api/v1/auth/requestcode`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ appId:APP_ID, appName:APP_NAME, appVersion:APP_VER })
+    });
+    if (!r1.ok) throw new Error(`YTMD returned ${r1.status}. Is Companion Server enabled in YTMD settings?`);
+    const { code } = await r1.json();
+
+    const cb = document.getElementById('cbox');
+    cb.textContent = code; cb.style.display = 'block';
+    document.getElementById('ahint').textContent = '👆 A dialog appeared in YTMD — click Allow now.';
+    setAst('Waiting… (30 second timeout)');
+
+    const r2 = await fetch(`http://${ip}:${PORT}/api/v1/auth/request`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ appId:APP_ID, code })
+    });
+    if (!r2.ok) throw new Error('Authorization denied or timed out. Try again.');
+    const { token: tok } = await r2.json();
+
+    token = tok;
+    localStorage.setItem('ytm_token', token);
+    cb.style.display = 'none';
+    document.getElementById('ahint').textContent = '✓ Authorized successfully.';
+    document.getElementById('rbtn').style.display = '';
+    setAst('Connected! Use the OBS URL below.', '#4ade80');
+    updateObsUrl();
+    connect();
+
+  } catch(err) {
+    setAst(`✗ ${err.message}`, 'var(--accent)');
+    btn.disabled = false;
+    document.getElementById('cbox').style.display = 'none';
+  }
+}
+
+function updateObsUrl() {
+  if (!token) return;
+  // Build clean hash URL — fragment never leaves the browser
+  const ipPart  = ip !== '127.0.0.1' ? `ip=${encodeURIComponent(ip)}&` : '';
+  const url     = `${GITHUB_URL}#${ipPart}t=${encodeURIComponent(token)}`;
+  const el      = document.getElementById('obsurl');
+  el.textContent   = url;
+  el.style.display = 'block';
+  document.getElementById('urlst').innerHTML =
+    '☝️ Copy into OBS Browser Source. &nbsp;<button class="btn" style="padding:5px 12px;font-size:11px" onclick="copyObsUrl()">Copy URL</button>';
+  document.getElementById('urlst').style.color = 'var(--accent2)';
+}
+
+function copyObsUrl() {
+  const url = document.getElementById('obsurl').textContent.trim();
+  navigator.clipboard.writeText(url).then(() => {
+    document.getElementById('urlst').innerHTML =
+      '✓ Copied to clipboard! Paste into OBS Browser Source URL field.';
+    document.getElementById('urlst').style.color = '#4ade80';
+    setTimeout(updateObsUrl, 2500);
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+if (OBS_MODE) {
+  // OBS: show only the player, connect immediately
+  $setup.style.display  = 'none';
+  $wrap.style.display   = 'block';
+  connect();
+} else {
+  // Browser: show setup panel, also show player below for preview
+  $setup.style.display  = 'flex';
+  $wrap.style.display   = 'block';
+  document.getElementById('ip').value = ip;
+  if (token) {
+    document.getElementById('ahint').textContent = 'Token found — re-authorize if needed.';
+    document.getElementById('abtn').textContent  = 'Re-authorize';
+    document.getElementById('rbtn').style.display = '';
+    setAst('Token loaded from storage.', '#4ade80');
+    updateObsUrl();
+    connect();
+  }
+}
+</script>
+</body>
+</html>
